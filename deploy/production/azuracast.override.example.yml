@@ -1,0 +1,14 @@
+# Merge into the destination AzuraCast docker-compose.override.yml.
+services:
+  web:
+    ports: !override []
+    networks:
+      default: {}
+      radio_edge:
+        aliases:
+          - azuracast-radio
+
+networks:
+  radio_edge:
+    name: ghmaas-radio-edge
+    external: true

@@ -1,0 +1,70 @@
+name: ghmaas-radio-app
+
+x-runtime: &runtime
+  init: true
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: [no-new-privileges:true]
+  logging:
+    driver: json-file
+    options:
+      max-size: 5m
+      max-file: "3"
+  networks: [radio]
+
+services:
+  frontend:
+    <<: *runtime
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      target: frontend
+    ports:
+      - "127.0.0.1:18088:8080"
+    mem_limit: 128m
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:8080/healthz',{signal:AbortSignal.timeout(3000)}).then(r=>{if(r.status!==204)process.exitCode=1}).catch(()=>{process.exitCode=1})"]
+      interval: 15s
+      timeout: 4s
+      retries: 3
+      start_period: 5s
+
+  backend:
+    <<: *runtime
+    build:
+      context: .
+      dockerfile: deploy/docker/Dockerfile
+      target: backend
+    user: "${GHMAAS_UID:-1000}:${GHMAAS_GID:-1000}"
+    ports:
+      - "127.0.0.1:18090:18090"
+    environment:
+      GHMAAS_RUNTIME: compose
+      ADMIN_ORIGIN: http://127.0.0.1:18090
+      ADMIN_LISTEN_PORT: "18090"
+      ADMIN_FRONTEND_DIR: /app/frontend
+      ADMIN_MANAGEMENT_MODE: "${GHMAAS_ADMIN_MANAGEMENT_MODE:-read-only}"
+      ADMIN_ALLOW_WRITES: "${GHMAAS_ADMIN_ALLOW_WRITES:-false}"
+      ADMIN_APPROVED_UPLOAD_SHA256: "${GHMAAS_APPROVED_UPLOAD_SHA256:-}"
+      ADMIN_WRITE_WINDOW_EXPIRES_AT: "${GHMAAS_WRITE_WINDOW_EXPIRES_AT:-}"
+    secrets: [ghmaas_operator]
+    mem_limit: 384m
+    tmpfs:
+      - /tmp:mode=1777,size=48m,nosuid,nodev,noexec
+    stop_grace_period: 15s
+    healthcheck:
+      test: [CMD, node, -e, "fetch('http://127.0.0.1:18090/healthz',{signal:AbortSignal.timeout(3000)}).then(r=>{if(r.status!==204)process.exitCode=1}).catch(()=>{process.exitCode=1})"]
+      interval: 15s
+      timeout: 4s
+      retries: 3
+      start_period: 5s
+
+networks:
+  radio:
+    name: azuracast_default
+    external: true
+
+secrets:
+  ghmaas_operator:
+    file: ./backend/.env

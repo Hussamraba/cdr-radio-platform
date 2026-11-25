@@ -1,0 +1,41 @@
+services:
+  backend:
+    environment:
+      ADMIN_TAILNET_ORIGIN: "${GHMAAS_TAILNET_ADMIN_ORIGIN:-}"
+      ADMIN_TAILNET_LOGIN: "${GHMAAS_TAILNET_ADMIN_LOGIN:-}"
+    volumes:
+      - type: bind
+        source: ./deploy/docker/.tailnet-runtime
+        target: /run/ghmaas-tailnet
+        bind:
+          create_host_path: false
+
+  admin-tailnet:
+    image: tailscale/tailscale:v1.104.7@sha256:72c1e19e0aedca96b8533bbb0b4368564410ff20b17e53b804eb6c1f04a31be4
+    hostname: ghmaas-admin
+    restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [DAC_OVERRIDE]
+    security_opt: [no-new-privileges:true]
+    environment:
+      TS_HOSTNAME: ghmaas-admin
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_USERSPACE: "true"
+      TS_AUTH_ONCE: "true"
+      TS_BOOT_TIMEOUT: 15m
+      TS_EXTRA_ARGS: --accept-dns=false
+    tmpfs:
+      - /tmp
+      - /var/run/tailscale
+    volumes:
+      - admin-tailnet-state:/var/lib/tailscale
+      - type: bind
+        source: ./deploy/docker/.tailnet-runtime
+        target: /run/ghmaas-tailnet
+        read_only: true
+        bind:
+          create_host_path: false
+
+volumes:
+  admin-tailnet-state:

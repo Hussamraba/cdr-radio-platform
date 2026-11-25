@@ -1,0 +1,67 @@
+{
+	email {$ACME_EMAIL}
+	acme_ca https://acme-v02.api.letsencrypt.org/directory
+}
+
+(azuracast_forwarded_headers) {
+	header_up -Forwarded
+	header_up -X-Forwarded-Prefix
+	header_up X-Forwarded-Port 443
+}
+
+{$RADIO_HOST} {
+	@public_radio {
+		method GET HEAD
+		path_regexp radio ^/(api/nowplaying/ghmaas_baladi_radio|api/station/(ghmaas_baladi_radio|1)/art/[A-Za-z0-9_-]+([.][A-Za-z0-9_-]+)?|static/vite_dist/assets/generic_song-[A-Za-z0-9_-]+[.]jpg|listen/ghmaas_baladi_radio/radio[.]mp3)$
+	}
+	@backend_paths path /api /api/* /listen /listen/* /static /static/* /admin /admin/* /login /login/* /setup /setup/* /manage /manage/* /station /station/*
+
+	route {
+		handle @public_radio {
+			reverse_proxy azuracast-radio:80 {
+				import azuracast_forwarded_headers
+				header_up -Cookie
+				header_up -Authorization
+				header_up -X-API-Key
+				header_down -Set-Cookie
+				header_down -Expires
+				header_down Cache-Control no-store
+				flush_interval 100ms
+				transport http {
+					dial_timeout 3s
+					response_header_timeout 5s
+				}
+			}
+		}
+
+		handle @backend_paths {
+			respond 404
+		}
+
+		handle /assets/* {
+			root * /srv/frontend
+			file_server
+		}
+
+		handle {
+			root * /srv/frontend/current
+			route {
+				try_files {path} /index.html
+				header /index.html Cache-Control no-cache
+				file_server
+			}
+		}
+	}
+}
+
+{$RADIO_ADMIN_HOST} {
+	@operator remote_ip {$RADIO_ADMIN_CIDRS}
+	handle @operator {
+		reverse_proxy azuracast-radio:80 {
+			import azuracast_forwarded_headers
+		}
+	}
+	handle {
+		respond 403
+	}
+}

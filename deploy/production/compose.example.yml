@@ -1,0 +1,30 @@
+name: ghmaas-radio-edge
+
+services:
+  caddy:
+    image: ${CADDY_IMAGE:?Set CADDY_IMAGE to the tested Caddy image}
+    restart: unless-stopped
+    ports:
+      - "0.0.0.0:80:80"
+      - "0.0.0.0:443:443"
+    environment:
+      RADIO_HOST: ${RADIO_HOST:?Set the public radio hostname}
+      RADIO_ADMIN_HOST: ${RADIO_ADMIN_HOST:?Set the separate admin hostname}
+      ACME_EMAIL: ${ACME_EMAIL:?Set the ACME contact email}
+      RADIO_ADMIN_CIDRS: ${RADIO_ADMIN_CIDRS:?Set approved operator CIDRs}
+    volumes:
+      - ./caddy:/etc/caddy:ro
+      - ${FRONTEND_ROOT:-/srv/ghmaas-radio}:/srv/frontend:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - radio_edge
+
+volumes:
+  caddy_data:
+  caddy_config:
+
+networks:
+  radio_edge:
+    name: ghmaas-radio-edge
+    external: true

@@ -1,0 +1,96 @@
+{
+	admin off
+	auto_https off
+	grace_period 5s
+}
+
+(demo_radio) {
+	bind 127.0.0.1
+	root * frontend/dist
+
+	@write not method GET HEAD
+	@spa path_regexp spa ^(/|/(player|broadcast|library|playlists|settings)/?|/branches(/[A-Za-z0-9_-]+)?/?)$
+	@assets path /assets/* /images.jpg /favicon.svg /icons.svg /videos/ghmaas-hero-loop.mp4
+	@radio path_regexp radio ^(/(api/nowplaying/ghmaas_baladi_radio|api/station/(ghmaas_baladi_radio|1)/art/[A-Za-z0-9_-]+([.][A-Za-z0-9_-]+)?|static/vite_dist/assets/generic_song-[A-Za-z0-9_-]+[.]jpg|listen/ghmaas_baladi_radio/radio[.]mp3))$
+
+	route {
+		header {
+			Content-Security-Policy "connect-src 'self'; img-src 'self' data:; media-src 'self'; frame-ancestors 'none'"
+			X-Content-Type-Options nosniff
+		}
+		respond @write 405
+
+		handle @radio {
+			rewrite {re.radio.1}?
+			reverse_proxy 127.0.0.1:80 {
+				# Build upstream requests using the configured origin and public media headers.
+				header_up -*
+				header_up Host {args[0]}
+				header_up X-Forwarded-Host {args[0]}
+				header_up X-Forwarded-Proto {args[1]}
+				header_up X-Forwarded-Port {args[2]}
+				header_up Range {http.request.header.Range}
+				header_up If-Range {http.request.header.If-Range}
+				header_down -Set-Cookie
+				header_down -Expires
+				header_down Cache-Control no-store
+				flush_interval 100ms
+				transport http {
+					compression off
+					dial_timeout 3s
+					response_header_timeout 5s
+				}
+
+				@redirect status 3xx
+				handle_response @redirect {
+					@fallback_art expression `{rp.header.Location}.matches('^/static/vite_dist/assets/generic_song-[A-Za-z0-9_-]+[.]jpg$')`
+					redir @fallback_art {rp.header.Location} 302
+					respond 502
+				}
+			}
+		}
+
+		redir /public/ghmaas_baladi_radio /player 302
+
+		handle /public/ghmaas_baladi_radio/playlist.m3u {
+			header Content-Type audio/x-mpegurl
+			respond "#EXTM3U
+{args[3]}/listen/ghmaas_baladi_radio/radio.mp3
+" 200
+		}
+
+		handle /public/ghmaas_baladi_radio/playlist.pls {
+			header Content-Type audio/x-scpls
+			respond "[playlist]
+NumberOfEntries=1
+File1={args[3]}/listen/ghmaas_baladi_radio/radio.mp3
+Length1=-1
+Version=2
+" 200
+		}
+
+		handle @assets {
+			file_server
+		}
+
+		handle @spa {
+			rewrite /index.html
+			header Cache-Control no-cache
+			file_server
+		}
+		respond 404
+	}
+}
+
+http://127.0.0.1:8088 {
+	import demo_radio 127.0.0.1 http 8088 http://127.0.0.1:8088
+}
+
+http://{$GHMAAS_DEMO_HOST:demo.invalid}:8088 {
+	import demo_radio {$GHMAAS_DEMO_HOST:demo.invalid} https 443 https://{$GHMAAS_DEMO_HOST:demo.invalid}
+}
+
+http://:8088 {
+	bind 127.0.0.1
+	respond 404
+}
