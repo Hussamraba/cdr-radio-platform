@@ -22,8 +22,11 @@ An authorized operator signs in, uploads approved audio, verifies the Music Libr
 
 ## Build and verification
 
+- [CDR assessment submission and evaluator walkthrough](docs/submission.md)
 - [Technical architecture, security boundaries and WSL2 pacing](docs/architecture.md)
 - [Build commands, tests and iPhone acceptance](docs/testing.md)
+- [AI use and genuine development prompts](docs/ai-usage.md)
+- [Engineering challenges and lessons](docs/challenges.md)
 - [Frontend setup and local playback validation](frontend/README.md)
 - [Private Admin setup and API](deploy/admin/README.md)
 - [Docker Compose and mobile operator setup](deploy/docker/README.md)

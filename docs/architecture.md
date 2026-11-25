@@ -1,6 +1,6 @@
 # Ghmaas Baladi Radio technical architecture
 
-The assessment runs on a Windows laptop with Ubuntu WSL2. The public site and the private operator console use separate ingress paths and share one AzuraCast station.
+The assessment runs on a Windows laptop with Ubuntu WSL2. Docker in WSL2 runs AzuraCast and the custom application services. Host Caddy serves the public Vite build and proxies the station's listener endpoints. Public Tailscale Funnel and private Tailscale Serve give listeners and operators separate paths to the same station.
 
 ## Public and private request paths
 
@@ -9,8 +9,8 @@ flowchart LR
     Listener[Public browser] --> Funnel[Tailscale Funnel]
     Funnel --> Caddy[WSL Caddy on 8088]
     Caddy --> Public[React public build]
-    Caddy -->|Now Playing artwork and MP3 requests| AzuraCast
-    AzuraCast -->|MP3 mount relay| Icecast
+    Caddy -->|Now Playing, artwork and MP3 requests| AzuraCast
+    AzuraCast -->|Relays listener connections| Icecast
     AzuraCast -->|Station and queue| AutoDJ[Liquidsoap AutoDJ]
     AutoDJ -->|Encoded MP3| Icecast
     Operator[Authorized phone] --> Serve[Private Tailscale Serve]
@@ -27,7 +27,17 @@ flowchart LR
 | Private Admin | Express serves the private React build and `/admin-api`. The host binding is `127.0.0.1:18090`. The tailnet-only HTTPS service reaches Express through `/run/ghmaas-tailnet/admin.sock`. |
 | Docker preview | Loopback port `18088` serves a separate public build that reads the same station. Host Caddy continues to serve the assessment release. |
 
-The browser polls Now Playing separately from audio. Metadata can advance before a buffered listener reaches the next track. The player can measure its own startup and playback progress. The MP3 mount supplies no source timestamp for measuring delay from live.
+## Application components
+
+- **React and TypeScript** implement the Dashboard, Branch Player, and Music Management guide. Vite builds a public listener bundle and a separate private bundle with the Admin routes. The player uses an HTML audio element, while the frontend polls the station's Now Playing API for metadata. [Frontend source](../frontend/src/)
+- **Node.js and Express** serve the private React build and the authenticated `/admin-api`. Express handles sessions, validates uploads, and calls AzuraCast with a server-side key. The backend verifies music changes against fresh upstream reads. [Backend source](../backend/src/)
+- **AzuraCast** owns the station, media, Main Rotation, Now Playing, and play history. **Liquidsoap** consumes the AutoDJ queue and encodes the broadcast. **Icecast** serves the continuous MP3 stream that the AzuraCast web layer relays to Caddy. The custom Compose project joins AzuraCast's existing network.
+
+## Branch connectivity and buffering
+
+Branch staff open the public HTTPS Branch Player in a regular browser and tap **Play**. Each device connects to the same station mount, with its own buffer and local pause, mute, and volume. Pausing one branch leaves the central broadcast and other listeners playing. The station reports aggregate listeners. Individual branch registration and monitoring are outside the current implementation. [Public Branch Player](https://hussam.tail1a8390.ts.net/player)
+
+The Now Playing feed and audible playback advance independently. A buffered browser can still play the previous track after metadata changes. Startup time, reconnection, and track-transition timing vary with the browser and network. The app observes its local playback position, while the MP3 mount supplies no source timestamp for measuring distance from live. Branches share the program and rotation with independent playback timing. Browser and OS behavior can affect background playback and screen lock. [Acceptance evidence](testing.md#iphone-upload-and-on-air-verification)
 
 ## Admin authentication and music workflow
 
@@ -45,10 +55,16 @@ AutoDJ may already have tracks queued. Verify the desired track in history and i
 
 On 25 November 2026, diagnostics measured a sustained pacing deficit at the Liquidsoap source and the Icecast, Caddy and Funnel outputs. Comparing frame counts against WSL's `CLOCK_MONOTONIC_RAW` showed approximately 0.98 seconds of audio delivered per second before the host time-service intervention. The operator stopped Windows Time on the assessment host at 15:32 Asia/Amman and disabled its startup during the diagnosis. The Funnel measurement rose to about 1.001 seconds of audio per second over the next seven minutes. The source and proxy measurements pointed to host clock behavior.
 
-A later release audit measured 1.00011 seconds of audio per second over a steady 60-second window while Windows Time was running with demand start. Check the host's service state with `sc.exe query W32Time` and `sc.exe qc W32Time` in PowerShell. Measure audio before treating the earlier intervention as necessary. Record the connection, decoded audio duration, elapsed raw monotonic time and longest read gap. Discard the initial buffer burst when calculating sustained pacing. A physical iPhone Safari listening check complements the transport measurement.
+A later release audit measured 1.00011 seconds of audio per second over a steady 60-second window while Windows Time was running with demand start. During the subsequent public frontend cutover, direct Icecast measured 1.000016× and Funnel measured 1.001640× over the steady parts of continuous 90-second samples.
+
+Check the host's service state with `sc.exe query W32Time` and `sc.exe qc W32Time` in PowerShell. Measure audio before treating the earlier intervention as necessary. Record the connection, decoded audio duration, elapsed raw monotonic time and longest read gap. Discard the initial buffer burst when calculating sustained pacing. A physical iPhone Safari listening check complements the transport measurement.
 
 ## Deployment limitations
 
 - Public availability depends on the laptop staying awake and online, WSL2 and Docker remaining active, and the public HTTPS endpoint staying reachable. The Linux VPS runbook describes a separate deployment option. [Public demo runbook](../deploy/demo/README.md#assessment-limits) · [Linux VPS runbook](../deploy/production/README.md)
 - The station catalog, audio, settings and queue live in AzuraCast state. A fresh environment needs an installation, a matching station and playlist, authorized media, operator configuration and separate tailnet enrollment for mobile Admin.
 - The assessment audit found wildcard WSL host publications for AzuraCast web, SFTP and station ports. It also observed that the deployed key could read protected station settings beyond the media workflow. Review host reachability and the effective service-account role before a wider rollout.
+
+## Future Linux VPS deployment
+
+A dedicated Linux VPS is the proposed hosting path for a longer-running installation. The example uses public DNS and Caddy-managed TLS, an internal Docker network for AzuraCast, and restricted access to the AzuraCast administration host. A migration would need an AzuraCast backup and restore, time synchronization, bandwidth sizing for concurrent listeners, monitoring and verified rollback. The custom mobile Admin's private ingress would also need separate provisioning and validation. The assessment currently runs from WSL2 on the operator's laptop, with availability tied to that host and its connection. [VPS deployment and restore runbook](../deploy/production/README.md)
